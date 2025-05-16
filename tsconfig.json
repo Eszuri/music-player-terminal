@@ -27,9 +27,9 @@
         "useDefineForClassFields": true,
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true,
-        "outDir": "build"
+        "outDir": "build",
     },
     "include": [
-        "src"
-    ]
+        "src",
+    ],
 }
