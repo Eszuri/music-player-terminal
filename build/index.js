@@ -1,16 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { render, Text, useApp, useInput } from 'ink';
+import React, { useEffect, useRef, useState } from 'react';
+import { Text, render, Box, useApp, useInput } from 'ink';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
 import clear from 'clear';
+import { parseFile } from 'music-metadata';
 export default function App() {
     const [folder, setFolder] = useState([]);
+    const [metadata, SetMetadata] = useState();
+    const [progress, setProgress] = useState(0);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPath, setCurrentPath] = useState('');
-    const [status, setStatus] = useState('');
+    const [status, setStatus] = useState(0);
     const [trigger, SetTrigger] = useState(false);
     const rootFolder = '/run/media/eszuri/New Volume/Anime_Ost';
+    const vlcRef = useRef(null);
+    const switchAudioRef = useRef(null);
+    const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
     const { exit } = useApp();
     useInput((input, key) => {
@@ -35,33 +41,60 @@ export default function App() {
                 setSelectedIndex(0);
             }
             if (checkType.isFile()) {
-                SetTrigger(!trigger);
-                setTimeout(() => {
-                    setSelectedIndex(prev => prev + 1);
-                }, 100);
+                if (status == 1 && vlcRef.current && switchAudioRef.current) {
+                    enterTrigger.current ? enterTrigger.current = true : enterTrigger.current = true;
+                    vlcRef.current.kill();
+                    SetTrigger(!trigger);
+                }
+                else {
+                    setStatus(1);
+                    SetTrigger(!trigger);
+                }
             }
         }
         if (key.escape) {
+            if (vlcRef.current == null || vlcRef.current != null) {
+                vlcRef.current?.kill();
+            }
             exit();
             console.clear();
         }
     });
     useEffect(() => {
-        if (fullPath != rootFolder) {
-            spawn('vlc', ['--quiet', '--no-video', '--intf', 'dummy', '--play-and-exit',
-                fullPath + '/' + folder[selectedIndex]]).on('close', (x) => {
-                if (folder.length == selectedIndex + 1) {
-                    setSelectedIndex(0);
-                }
-                else {
-                    SetTrigger(!trigger);
-                }
-                setSelectedIndex(prev => prev + 1);
-                setStatus('play now' + x);
-            });
+        if (fullPath != rootFolder && selectedIndex != 0 && folder.length != selectedIndex + 1) {
+            parseFile(fullPath + "/" + folder[selectedIndex]).then(x => SetMetadata(x));
         }
-        else {
-            setStatus('');
+    }, [selectedIndex]);
+    useEffect(() => {
+        if (fullPath != rootFolder) {
+            setProgress(0);
+            switchAudioRef.current = setInterval(() => { setProgress(prev => prev + 1); }, 1000);
+            vlcRef.current = spawn('vlc', [
+                '--quiet', '--no-video', '--intf', 'dummy', '--play-and-exit',
+                fullPath + '/' + folder[selectedIndex]
+            ]);
+            if (vlcRef.current) {
+                vlcRef.current.on('close', () => {
+                    if (switchAudioRef.current) {
+                        clearInterval(switchAudioRef.current);
+                    }
+                    if (folder.length == selectedIndex + 1) {
+                        vlcRef.current = null;
+                        switchAudioRef.current = null;
+                        setSelectedIndex(0);
+                        setStatus(2);
+                    }
+                    else {
+                        if (enterTrigger.current == false) {
+                            setSelectedIndex(prev => prev + 1);
+                        }
+                        else {
+                            enterTrigger.current = false;
+                        }
+                        SetTrigger(!trigger);
+                    }
+                });
+            }
         }
     }, [trigger]);
     useEffect(() => {
@@ -85,20 +118,64 @@ export default function App() {
             }
         });
     }, [currentPath]);
+    const visibleCount = 25;
+    const scrollStart = Math.min(Math.max(selectedIndex - Math.floor(visibleCount / 2), 0), Math.max(folder.length - visibleCount, 0));
+    const visibleItems = folder.slice(scrollStart, scrollStart + visibleCount);
+    const persentase = Math.floor((progress / Number(metadata?.format.duration)) * 100);
+    const barProgress = "=".repeat(persentase / 2).padEnd(50, " ");
     return (React.createElement(React.Fragment, null,
-        folder.map((value, index) => (React.createElement(Text, { color: index === selectedIndex ? 'cyan' : undefined, key: index },
-            index === selectedIndex ? ' ▶️' : '   ',
-            " ",
-            value))),
-        React.createElement(Text, null,
-            "Directory: ",
-            fullPath),
-        React.createElement(Text, null,
-            "Selected: \"",
-            folder[selectedIndex],
-            "\""),
-        React.createElement(Text, null,
-            "Status: ",
-            status)));
+        React.createElement(Box, { display: 'flex', width: '100%', height: "100%" },
+            React.createElement(Box, { width: '100%', borderColor: 'green', borderStyle: 'single', display: 'flex', flexWrap: 'wrap', flexDirection: 'column' }, visibleItems.map((value, idx) => {
+                const actualIndex = scrollStart + idx;
+                const isSelected = actualIndex === selectedIndex;
+                return (React.createElement(Text, { key: actualIndex, color: isSelected ? 'blackBright' : undefined, underline: isSelected }, value));
+            })),
+            React.createElement(Box, { marginLeft: 79, padding: 1, position: 'absolute', width: 57, borderStyle: 'single', borderColor: "blue", flexDirection: 'column' },
+                React.createElement(Text, null,
+                    "Name: ",
+                    metadata?.common.title),
+                React.createElement(Text, null,
+                    "Album: ",
+                    metadata?.common.album),
+                React.createElement(Text, null,
+                    "Artist: ",
+                    metadata?.common.artist),
+                React.createElement(Text, null,
+                    "Duration: ",
+                    Math.floor(metadata?.format.duration / 60) || 0,
+                    " Menit ",
+                    Math.floor(metadata?.format.duration || 0 % 60).toString().padStart(2, '0'),
+                    " Detik"),
+                React.createElement(Text, null,
+                    "Progress: ",
+                    Math.floor(progress / 60),
+                    " Menit : ",
+                    Math.floor(progress % 60).toString().padStart(2, '0'),
+                    " Detik"),
+                React.createElement(Text, null,
+                    "[",
+                    barProgress,
+                    "] ",
+                    persentase || 0,
+                    "%"),
+                React.createElement(Text, null, '-'.repeat(53)),
+                React.createElement(Text, { wrap: 'truncate-start' },
+                    "Directory: ",
+                    currentPath),
+                React.createElement(Text, null,
+                    "Selected: \"",
+                    folder[selectedIndex],
+                    "\""),
+                React.createElement(Text, null,
+                    "Status: ",
+                    status == 0 && 'Music Not Played',
+                    " ",
+                    status == 1 && "Music Is Playing",
+                    " ",
+                    status == 2 && "Music Has Ended")))));
 }
-render(React.createElement(App, null));
+function Renderer() {
+    clear();
+    render(React.createElement(App, null));
+}
+Renderer();
