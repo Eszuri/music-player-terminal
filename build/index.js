@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, render, Box, useApp, useInput } from 'ink';
 import fs from 'fs';
-import { spawn } from 'child_process';
+import { exec, spawn } from 'child_process';
 import path from 'path';
 import clear from 'clear';
 import { parseFile } from 'music-metadata';
+import { CopyAssests, CopyDefaultImage } from './cp.js';
 export default function App() {
+    // variabel
     const [folder, setFolder] = useState([]);
     const [metadata, SetMetadata] = useState();
     const [progress, setProgress] = useState(0);
@@ -19,6 +21,7 @@ export default function App() {
     const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
     const { exit } = useApp();
+    // hanlde keyboard
     useInput((input, key) => {
         const selectedItem = folder[selectedIndex];
         const targetPath = path.join(fullPath, selectedItem);
@@ -47,8 +50,10 @@ export default function App() {
                     SetTrigger(!trigger);
                 }
                 else {
+                    getMetadata();
                     setStatus(1);
                     SetTrigger(!trigger);
+                    exec(`gsettings set org.gnome.desktop.background picture-uri-dark "${process.cwd()}/build/background.png"`);
                 }
             }
         }
@@ -56,17 +61,35 @@ export default function App() {
             if (vlcRef.current == null || vlcRef.current != null) {
                 vlcRef.current?.kill();
             }
+            ;
+            CopyDefaultImage();
             exit();
             console.clear();
         }
     });
-    useEffect(() => {
-        if (fullPath != rootFolder && selectedIndex != 0 && folder.length != selectedIndex + 1) {
-            parseFile(fullPath + "/" + folder[selectedIndex]).then(x => SetMetadata(x));
+    // function untuk save image dan set wallpaper
+    async function getMetadata() {
+        try {
+            const xyz = await parseFile(fullPath + "/" + folder[selectedIndex]);
+            SetMetadata(xyz);
+            const picture = xyz.common.picture?.[0];
+            if (!picture) {
+                return null;
+            }
+            fs.writeFile('build/background.png', picture.data, (err) => { if (err) {
+                console.log('Failed to write image:', err);
+                return;
+            } });
+            return xyz;
         }
-    }, [selectedIndex]);
+        catch (err) {
+            return err;
+        }
+    }
+    // eksekusi ketika return lagu
     useEffect(() => {
         if (fullPath != rootFolder) {
+            getMetadata();
             setProgress(0);
             switchAudioRef.current = setInterval(() => { setProgress(prev => prev + 1); }, 1000);
             vlcRef.current = spawn('vlc', [
@@ -83,6 +106,7 @@ export default function App() {
                         switchAudioRef.current = null;
                         setSelectedIndex(0);
                         setStatus(2);
+                        CopyDefaultImage();
                     }
                     else {
                         if (enterTrigger.current == false) {
@@ -97,15 +121,13 @@ export default function App() {
             }
         }
     }, [trigger]);
+    // mengambil data file lagu
     useEffect(() => {
         fs.readdir(path.join(rootFolder, currentPath), (err, data) => {
             if (err)
                 throw err;
             const sorted = data
-                .map(f => ({
-                file: f,
-                mtime: fs.statSync(path.join(fullPath, f)).mtime
-            }))
+                .map(f => ({ file: f, mtime: fs.statSync(path.join(fullPath, f)).mtime }))
                 .sort((a, b) => a.mtime - b.mtime)
                 .map(f => f.file);
             if (fullPath == rootFolder) {
@@ -118,19 +140,21 @@ export default function App() {
             }
         });
     }, [currentPath]);
+    // membuat sebuah scroll
     const visibleCount = 25;
     const scrollStart = Math.min(Math.max(selectedIndex - Math.floor(visibleCount / 2), 0), Math.max(folder.length - visibleCount, 0));
     const visibleItems = folder.slice(scrollStart, scrollStart + visibleCount);
+    // progress realtime
     const persentase = Math.floor((progress / Number(metadata?.format.duration)) * 100);
     const barProgress = "=".repeat(persentase / 2).padEnd(50, " ");
     return (React.createElement(React.Fragment, null,
-        React.createElement(Box, { display: 'flex', width: '100%', height: "100%" },
+        React.createElement(Box, { display: 'flex', width: '100%', minHeight: 15 },
             React.createElement(Box, { width: '100%', borderColor: 'green', borderStyle: 'single', display: 'flex', flexWrap: 'wrap', flexDirection: 'column' }, visibleItems.map((value, idx) => {
                 const actualIndex = scrollStart + idx;
                 const isSelected = actualIndex === selectedIndex;
                 return (React.createElement(Text, { key: actualIndex, color: isSelected ? 'blackBright' : undefined, underline: isSelected }, value));
             })),
-            React.createElement(Box, { marginLeft: 79, padding: 1, position: 'absolute', width: 57, borderStyle: 'single', borderColor: "blue", flexDirection: 'column' },
+            React.createElement(Box, { marginLeft: 80, padding: 1, position: 'absolute', width: 69, borderStyle: 'single', borderColor: "blue", flexDirection: 'column' },
                 React.createElement(Text, null,
                     "Name: ",
                     metadata?.common.title),
@@ -158,7 +182,7 @@ export default function App() {
                     "] ",
                     persentase || 0,
                     "%"),
-                React.createElement(Text, null, '-'.repeat(53)),
+                React.createElement(Text, null, '-'.repeat(64)),
                 React.createElement(Text, { wrap: 'truncate-start' },
                     "Directory: ",
                     currentPath),
@@ -175,6 +199,7 @@ export default function App() {
                     status == 2 && "Music Has Ended")))));
 }
 function Renderer() {
+    CopyAssests();
     clear();
     render(React.createElement(App, null));
 }
