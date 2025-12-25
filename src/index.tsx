@@ -11,14 +11,14 @@ export default function App() {
     // variabel
     const [folder, setFolder] = useState<string[]>([]);
     const [metadata, SetMetadata] = useState<IAudioMetadata>()
-    const [progress, setProgress] = useState<number>(0)
+    const [progress, setProgress] = useState<string>('');
+    const [totalProgress, setTotalProgress] = useState<string>('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPath, setCurrentPath] = useState('');
     const [status, setStatus] = useState<number>(0);
     const [trigger, SetTrigger] = useState<boolean>(false);
-    const rootFolder = '/run/media/eszuri/New Volume/Anime_Ost';
+    const rootFolder = path.join(process.cwd(), "../../../../Anime_Ost");
     const vlcRef = useRef<ChildProcess | null>(null);
-    const switchAudioRef = useRef<NodeJS.Timeout | null>(null);
     const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
     const {exit} = useApp();
@@ -52,13 +52,14 @@ export default function App() {
             }
 
             if (checkType.isFile()) {
-                if (status == 1 && vlcRef.current && switchAudioRef.current) {
+                if (status == 1 && vlcRef.current) {
                     enterTrigger.current ? enterTrigger.current = true : enterTrigger.current = true;
                     vlcRef.current.kill();
                     SetTrigger(!trigger);
                 } else {
                     getMetadata()
                     setStatus(1)
+                    vlcRef.current ? vlcRef.current.kill() : null;
                     SetTrigger(!trigger);
                     exec(`gsettings set org.gnome.desktop.background picture-uri-dark "${process.cwd()}/build/background.png"`)
 
@@ -89,22 +90,59 @@ export default function App() {
 
 
 
+    // format time 
+    function formatTime(seconds: any) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
 
     // eksekusi ketika return lagu
     useEffect(() => {
         if (fullPath != rootFolder) {
             getMetadata();
-            setProgress(0);
-            switchAudioRef.current = setInterval(() => {setProgress(prev => prev + 1)}, 1000);
+            let duration = 0;  // akan diisi saat pertama kali dapat status
+            const progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('http://localhost:8080/requests/status.json', {
+                        headers: {
+                            Authorization: 'Basic ' + Buffer.from(':Eszuri').toString('base64')  // username kosong
+                        }
+                    });
+                    const status = await response.json();
+
+                    if (status.length > 0 && duration === 0) {
+                        duration = status.length;  // total duration dalam detik
+                        setTotalProgress(formatTime(duration))
+                    }
+
+                    if (status.time !== undefined) {
+                        const current = status.time;
+                        const percent: any = duration > 0 ? (current / duration * 100).toFixed(2) : 0;
+                        setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%")
+                    }
+                } catch (err) {
+                    console.error('Error polling status:', err);
+                    console.clear()
+                }
+            }, 500);  // update setiap 1 detik
+
+
             vlcRef.current = spawn('vlc', [
-                '--quiet', '--no-video', '--intf', 'dummy', '--play-and-exit',
+                '--quiet',
+                '--no-video',
+                '--extraintf=http',       // aktifkan HTTP interface
+                '--http-port=8080',       // port default 8080
+                '--http-password=Eszuri', // password untuk akses
+                '--play-and-exit',
                 fullPath + '/' + folder[selectedIndex]]);
             if (vlcRef.current) {
                 vlcRef.current.on('close', () => {
-                    if (switchAudioRef.current) {clearInterval(switchAudioRef.current)}
+                    clearInterval(progressInterval)
                     if (folder.length == selectedIndex + 1) {
                         vlcRef.current = null;
-                        switchAudioRef.current = null;
                         setSelectedIndex(0);
                         setStatus(2);
                         CopyDefaultImage();
@@ -148,9 +186,6 @@ export default function App() {
     );
     const visibleItems = folder.slice(scrollStart, scrollStart + visibleCount);
 
-    // progress realtime
-    const persentase = Math.floor((progress / Number(metadata?.format.duration)) * 100);
-    const barProgress = "=".repeat(persentase / 2).padEnd(50, " ");
 
 
     return (
@@ -167,14 +202,15 @@ export default function App() {
                     <Text>Name: {metadata?.common.title}</Text>
                     <Text>Album: {metadata?.common.album}</Text>
                     <Text>Artist: {metadata?.common.artist}</Text>
-                    <Text>Duration: {Math.floor(metadata?.format.duration as number / 60) || 0} Menit {Math.floor(metadata?.format.duration as number || 0 % 60).toString().padStart(2, '0')} Detik</Text>
-                    <Text>Progress: {Math.floor(progress / 60)} Menit : {Math.floor(progress % 60).toString().padStart(2, '0')} Detik</Text>
-                    <Text>[{barProgress}] {persentase || 0}%</Text>
+                    <Text>Duration: {totalProgress}</Text>
+                    <Text>Progress: {progress}</Text>
                     <Text>{'-'.repeat(64)}</Text>
                     <Text wrap='truncate-start'>Directory: {currentPath}</Text>
                     <Text>Selected: "{folder[selectedIndex]}"</Text>
                     <Text>Status: {status == 0 && 'Music Not Played'} {status == 1 && "Music Is Playing"} {status == 2 && "Music Has Ended"}</Text>
                 </Box>
+
+
             </Box>
         </>
     );
