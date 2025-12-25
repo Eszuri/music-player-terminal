@@ -131,9 +131,8 @@ export default function App() {
 
 
             vlcRef.current = spawn('vlc', [
-                '--quiet',
+                '--qt-start-minimized',
                 '--no-video',
-                '--intf',
                 '--extraintf=http',       // aktifkan HTTP interface
                 '--http-port=8080',       // port default 8080
                 '--http-password=Eszuri', // password untuk akses
