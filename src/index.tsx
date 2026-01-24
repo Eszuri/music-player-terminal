@@ -5,13 +5,13 @@ import fs from 'fs';
 import path from 'path';
 import clear from 'clear';
 import {ChildProcess, exec, spawn} from 'child_process';
+import {IAudioMetadata, parseFile} from 'music-metadata';
 import {CopyAssests, CopyDefaultImage} from './cp.js';
-import {parseFile} from 'music-metadata';
 
 export default function App() {
     // variabel
     const [folder, setFolder] = useState<string[]>([]);
-    const [metadata, setMetadata] = useState<any>()
+    const [metadata, SetMetadata] = useState<IAudioMetadata>()
     const [progress, setProgress] = useState<string>('');
     const [totalProgress, setTotalProgress] = useState<string>('');
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -23,6 +23,8 @@ export default function App() {
     const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
     const {exit} = useApp();
+
+    useEffect(() => {
 
 
 
@@ -61,6 +63,7 @@ export default function App() {
                     vlcRef.current.kill();
                     SetTrigger(!trigger);
                 } else {
+                    getMetadata()
                     setStatus(1)
                     vlcRef.current ? vlcRef.current.kill() : null;
                     SetTrigger(!trigger);
@@ -79,6 +82,20 @@ export default function App() {
     });
 
 
+    // function untuk save image dan set wallpaper
+    async function getMetadata() {
+        try {
+            const xyz = await parseFile(fullPath + "/" + folder[selectedIndex]);
+            SetMetadata(xyz);
+            const picture = xyz.common.picture?.[0];
+            if (!picture) {return null;}
+            fs.writeFile('build/background.png', picture.data, (err) => {if (err) {console.log('Failed to write image:', err); return;} });
+            return xyz;
+        } catch (err) {return err;}
+    }
+
+
+
     // format time 
     function formatTime(seconds: any) {
         const h = Math.floor(seconds / 3600);
@@ -91,6 +108,7 @@ export default function App() {
     // eksekusi ketika return lagu
     useEffect(() => {
         if (fullPath != rootFolder) {
+            getMetadata();
             let duration = 0;  // akan diisi saat pertama kali dapat status
             const progressInterval = setInterval(async () => {
                 try {
@@ -100,7 +118,6 @@ export default function App() {
                         }
                     });
                     const status = await response.json();
-                    setMetadata(status.information?.category?.meta)
 
                     if (status.length > 0 && duration === 0) {
                         duration = status.length;  // total duration dalam detik
@@ -149,18 +166,6 @@ export default function App() {
     }, [trigger])
 
 
-
-    // async function meta(file: string[]) {
-    //     const parsedResults = await Promise.all(file.map(async (x) => {
-    //         const parseResult = await parseFile(path.join(fullPath, x));
-    //         return parseResult
-    //     }));
-    //     return parsedResults;
-    // }
-
-
-
-
     // mengambil data file lagu
     useEffect(() => {
         fs.readdir(path.join(rootFolder, currentPath), (err, data) => {
@@ -172,23 +177,9 @@ export default function App() {
             if (fullPath == rootFolder) {
                 setFolder(['../', ...sorted]);
             } else {
-                const filterFileType = ['.mp3', '.ogg', '.wav', '.flac']
+                const filterFileType = ['.mp3', '.ogg', '..wav', '.flac']
                 const x = sorted.filter(item => filterFileType.some(format => item.toLowerCase().endsWith(format)))
-                // meta(x).then((res) => {
-                //     for (let i = 0; i < res.length; i++) {
-                //         const y: any = res[i].common.title;
-                //         console.log(res[i])
-
-                //         const json = y.split('\n')
-
-                //         setFolder(['../', ...json])
-                //     }
-                // });
-                if (fs.statSync(path.join(fullPath)).isDirectory()) {
-                    setFolder(['../', ...sorted])
-                } else {
-                    setFolder(['../', ...x])
-                }
+                setFolder(['../', ...x])
             }
         });
     }, [currentPath]);
@@ -216,9 +207,9 @@ export default function App() {
                         })}
                     </Box>
                     <Box marginLeft={80} padding={1} position='absolute' width={69} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
-                        <Text>Name: {metadata?.title}</Text>
-                        <Text>Album: {metadata?.album}</Text>
-                        <Text>Artist: {metadata?.artist}</Text>
+                        <Text>Name: {metadata?.common.title}</Text>
+                        <Text>Album: {metadata?.common.album}</Text>
+                        <Text>Artist: {metadata?.common.artist}</Text>
                         <Text>Duration: {totalProgress}</Text>
                         <Text>Progress: {progress}</Text>
                         <Text>{'-'.repeat(64)}</Text>
@@ -228,7 +219,7 @@ export default function App() {
                     </Box>
                     <Box marginLeft={150} padding={1} position='absolute' width={40} height={15} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
                         <Image
-                            src="D:\Codingan\node js\music player\build\background.png"
+                            src="./build/background.png"
                         />
                     </Box>
 
