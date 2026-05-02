@@ -150,7 +150,7 @@ export default function App() {
                 }
             }, 500);
 
-            vlcRef.current = spawn('vlc', [
+            vlcRef.current = spawn('cvlc', [
                 '--qt-start-minimized',
                 '--no-video',
                 '--extraintf=http',       // aktifkan HTTP interface
