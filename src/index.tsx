@@ -7,6 +7,7 @@ import clear from 'clear';
 import { ChildProcess, spawn } from 'child_process';
 import { IAudioMetadata, parseFile } from 'music-metadata';
 import { CopyAssests, CopyDefaultImage } from './cp.js';
+import { autoWallpaper } from './auto-wallpaper.js';
 
 export default function App() {
     // variabel
@@ -145,6 +146,7 @@ export default function App() {
                         const percent: any = duration > 0 ? (current / duration * 100).toFixed(2) : 0;
                         setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%")
                     }
+                    autoWallpaper();
                 } catch (err) {
                     // Silently ignore polling errors to avoid terminal flickering
                 }
@@ -169,8 +171,10 @@ export default function App() {
                     } else {
                         if (enterTrigger.current == false) {
                             setSelectedIndex(prev => prev + 1);
+                            autoWallpaper();
                         } else {
                             enterTrigger.current = false;
+                            autoWallpaper();
                         }
                         SetTrigger(!trigger)
                     }
@@ -210,7 +214,7 @@ export default function App() {
     }, [currentPath]);
 
     // membuat sebuah scroll
-    const visibleCount = 25;
+    const visibleCount = 40;
     const scrollStart = Math.min(
         Math.max(selectedIndex - Math.floor(visibleCount / 2), 0),
         Math.max(folder.length - visibleCount, 0)
