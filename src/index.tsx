@@ -219,59 +219,127 @@ export default function App() {
 
 
 
-    return (
-        <>
-            <TerminalInfoProvider>
+    // UI Logic
+    const percentMatch = progress.match(/\((.*?)\)%/);
+    const percentValue = percentMatch ? parseFloat(percentMatch[1]) : 0;
+    const barLength = 45;
+    const filledLength = Math.floor((percentValue / 100) * barLength);
+    const progressBar = '█'.repeat(filledLength) + '░'.repeat(Math.max(0, barLength - filledLength));
 
-                <Box display='flex' width={'100%'} minHeight={15}>
-                    <Box width={'100%'} borderColor={'green'} borderStyle={'single'} display='flex' flexWrap='wrap' flexDirection='column'>
+    return (
+        <TerminalInfoProvider>
+            <Box flexDirection="column" width="100%" padding={1}>
+
+                <Box justifyContent="space-between" marginBottom={1}>
+                    <Text bold color="white"> 🎵  Music Player</Text>
+                    <Text color="cyan">
+                        {status === 0 && '● Stopped'}
+                        {status === 1 && '● Playing'}
+                        {status === 2 && '● Ended'}
+                    </Text>
+                </Box>
+
+                <Box flexDirection="row" flexGrow={1} minHeight={28}>
+
+                    {/* Left Panel: Art + Info stacked */}
+                    <Box flexDirection="column" width="50%" marginRight={2}>
+
+                        {/* Large Album Art */}
+                        <Box
+                            width="100%"
+                            height={34}
+                            borderStyle="single"
+                            borderColor="gray"
+                        >
+                            <Image
+                                key={metadata?.common.title || folder[selectedIndex]}
+                                src="./build/background.png"
+                                width={100}
+                                height={100}
+                            />
+                        </Box>
+
+                        {/* Metadata Info */}
+                        <Box
+                            flexDirection="column"
+                            width={"100%"}
+                            borderStyle="single"
+                            borderColor="gray"
+                            paddingX={2}
+                            paddingY={0}
+                        >
+                            <Box flexDirection="row" marginBottom={0}>
+                                <Text color="white" bold wrap="truncate-end">
+                                    {metadata?.common.title || folder[selectedIndex] || '—'}
+                                </Text>
+                            </Box>
+                            <Box flexDirection="row">
+                                <Text color="white">{metadata?.common.artist || 'Unknown Artist'}</Text>
+                                {metadata?.common.album ? <Text color="cyan">  ·  {metadata.common.album}</Text> : null}
+                            </Box>
+
+                            {/* Progress Bar */}
+                            <Box flexDirection="column" marginTop={1}>
+                                <Text color="greenBright">{progressBar}</Text>
+                                <Box flexDirection="row" justifyContent="space-between" width={barLength}>
+                                    <Text color="white">{progress.split(' / ')[0] || '00:00:00'}</Text>
+                                    <Text color="white">{totalProgress || '00:00:00'}</Text>
+                                </Box>
+                            </Box>
+                        </Box>
+
+                        {/* Directory */}
+                        <Box marginTop={1} paddingX={1}>
+                            <Text color="cyan" wrap="truncate-start">📁 {currentPath || '/'}</Text>
+                        </Box>
+                    </Box>
+
+                    {/* Right Panel: Playlist */}
+                    <Box
+                        flexDirection="column"
+                        width="100%"
+                        borderStyle="single"
+                        borderColor="gray"
+                        paddingX={1}
+                    >
+                        <Box
+                            marginBottom={1}
+                            borderStyle="single"
+                            borderColor="gray"
+                            borderTop={false}
+                            borderLeft={false}
+                            borderRight={false}
+                            justifyContent="center"
+                        >
+                            <Text bold color="white"> QUEUE </Text>
+                        </Box>
                         {visibleItems.map((value, idx) => {
                             const actualIndex = scrollStart + idx;
                             const isSelected = actualIndex === selectedIndex;
-                            return (<Text key={actualIndex} color={isSelected ? 'blackBright' : undefined} underline={isSelected}>{value}</Text>);
+                            return (
+                                <Box key={actualIndex}>
+                                    <Text
+                                        color={isSelected ? 'greenBright' : 'white'}
+                                        bold={isSelected}
+                                        wrap="truncate-end"
+                                    >
+                                        {isSelected ? '▶ ' : '  '}
+                                        {value}
+                                    </Text>
+                                </Box>
+                            );
                         })}
                     </Box>
-                    <Box marginLeft={80} padding={1} position='absolute' width={69} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
-                        <Box flexDirection="row">
-                            <Text color="cyan" bold>Name: </Text>
-                            <Text bold>{metadata?.common.title || folder[selectedIndex] || 'Unknown'}</Text>
-                        </Box>
-                        <Box flexDirection="row">
-                            <Text color="cyan" bold>Album: </Text>
-                            <Text>{metadata?.common.album || 'Unknown'}</Text>
-                        </Box>
-                        <Box flexDirection="row">
-                            <Text color="cyan" bold>Artist: </Text>
-                            <Text>{metadata?.common.artist || 'Unknown'}</Text>
-                        </Box>
-                        <Box flexDirection="row">
-                            <Text color="cyan" bold>Duration: </Text>
-                            <Text>{totalProgress || '00:00:00'}</Text>
-                        </Box>
-                        <Box flexDirection="row">
-                            <Text color="cyan" bold>Progress: </Text>
-                            <Text color="yellow">{progress || '00:00:00'}</Text>
-                        </Box>
-                        <Text color="gray">{'-'.repeat(64)}</Text>
-                        <Text wrap='truncate-start'><Text color="magenta" bold>Directory: </Text>{currentPath}</Text>
-                        <Text><Text color="white" bold>Selected: </Text>"{folder[selectedIndex]}"</Text>
-                        <Text><Text color="white" bold>Status: </Text>
-                            {status === 0 && <Text color="gray">Music Not Played</Text>}
-                            {status === 1 && <Text color="green">Music Is Playing</Text>}
-                            {status === 2 && <Text color="red">Music Has Ended</Text>}
-                        </Text>
-                    </Box>
-                    <Box marginLeft={150} padding={1} position='absolute' width={40} height={15} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
-                        <Image
-                            key={metadata?.common.title || folder[selectedIndex]}
-                            src="./build/background.png"
-                        />
-                    </Box>
-
-
                 </Box>
-            </TerminalInfoProvider>
-        </>
+
+                {/* Footer */}
+                <Box marginTop={1} justifyContent="center">
+                    <Text color="cyan">
+                        <Text color="white" bold> ↑↓ </Text>nav  <Text color="white" bold> Enter </Text>select  <Text color="white" bold> Esc </Text>quit
+                    </Text>
+                </Box>
+            </Box>
+        </TerminalInfoProvider>
     );
 }
 
