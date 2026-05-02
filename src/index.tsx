@@ -85,10 +85,13 @@ export default function App() {
     async function getMetadata() {
         try {
             const xyz = await parseFile(fullPath + "/" + folder[selectedIndex]);
-            SetMetadata(xyz);
             const picture = xyz.common.picture?.[0];
-            if (!picture) { return null; }
-            fs.writeFile('build/background.png', picture.data, (err) => { if (err) { console.log('Failed to write image:', err); return; } });
+            if (picture) {
+                fs.writeFileSync('build/background.png', picture.data);
+            } else {
+                CopyDefaultImage();
+            }
+            SetMetadata(xyz);
             return xyz;
         } catch (err) { return err; }
     }
@@ -260,6 +263,7 @@ export default function App() {
                     </Box>
                     <Box marginLeft={150} padding={1} position='absolute' width={40} height={15} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
                         <Image
+                            key={metadata?.common.title || folder[selectedIndex]}
                             src="./build/background.png"
                         />
                     </Box>
