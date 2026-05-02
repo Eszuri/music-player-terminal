@@ -1,12 +1,12 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {Text, render, Box, useApp, useInput} from 'ink';
-import Image, {TerminalInfoProvider} from "ink-picture";
+import React, { useEffect, useRef, useState } from 'react';
+import { Text, render, Box, useApp, useInput } from 'ink';
+import Image, { TerminalInfoProvider } from "ink-picture";
 import fs from 'fs';
 import path from 'path';
 import clear from 'clear';
-import {ChildProcess, exec, spawn} from 'child_process';
-import {IAudioMetadata, parseFile} from 'music-metadata';
-import {CopyAssests, CopyDefaultImage} from './cp.js';
+import { ChildProcess, spawn } from 'child_process';
+import { IAudioMetadata, parseFile } from 'music-metadata';
+import { CopyAssests, CopyDefaultImage } from './cp.js';
 
 export default function App() {
     // variabel
@@ -18,21 +18,26 @@ export default function App() {
     const [currentPath, setCurrentPath] = useState('');
     const [status, setStatus] = useState<number>(0);
     const [trigger, SetTrigger] = useState<boolean>(false);
-    const rootFolder = path.join(process.cwd(), "../../../../Anime_Ost");
+    const rootFolder = path.join(process.cwd(), "./../../../Anime_Ost");
     const vlcRef = useRef<ChildProcess | null>(null);
     const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
-    const {exit} = useApp();
+    const { exit } = useApp();
 
-    useEffect(() => {
-
-
-
-
-    // hanlde keyboard
+    // handle keyboard
     useInput((input, key) => {
-        const selectedItem: any = folder[selectedIndex];
-        const targetPath = path.join(fullPath, selectedItem);
+        if (key.escape) {
+            if (vlcRef.current == null || vlcRef.current != null) { vlcRef.current?.kill() };
+            CopyDefaultImage();
+            exit();
+            console.clear();
+            return;
+        }
+
+        if (folder.length === 0) return;
+
+        const selectedItem = folder[selectedIndex];
+        if (selectedItem === undefined) return;
 
         if (key.downArrow) {
             setSelectedIndex(prev => (prev + 1) % folder.length);
@@ -43,6 +48,7 @@ export default function App() {
         }
 
         if (input === 'Enter' || key.return) {
+            const targetPath = path.join(fullPath, selectedItem);
             const checkType = fs.statSync(targetPath);
 
             if (selectedIndex === 0) {
@@ -52,7 +58,7 @@ export default function App() {
             }
 
             if (checkType.isDirectory()) {
-                clear({fullClear: true});
+                clear({ fullClear: true });
                 setCurrentPath(path.relative(rootFolder, targetPath));
                 setSelectedIndex(0);
             }
@@ -67,18 +73,11 @@ export default function App() {
                     setStatus(1)
                     vlcRef.current ? vlcRef.current.kill() : null;
                     SetTrigger(!trigger);
-                    exec(`gsettings set org.gnome.desktop.background picture-uri-dark "${process.cwd()}/build/background.png"`)
 
                 }
             }
         }
 
-        if (key.escape) {
-            if (vlcRef.current == null || vlcRef.current != null) {vlcRef.current?.kill()};
-            CopyDefaultImage();
-            exit();
-            console.clear();
-        }
     });
 
 
@@ -88,10 +87,10 @@ export default function App() {
             const xyz = await parseFile(fullPath + "/" + folder[selectedIndex]);
             SetMetadata(xyz);
             const picture = xyz.common.picture?.[0];
-            if (!picture) {return null;}
-            fs.writeFile('build/background.png', picture.data, (err) => {if (err) {console.log('Failed to write image:', err); return;} });
+            if (!picture) { return null; }
+            fs.writeFile('build/background.png', picture.data, (err) => { if (err) { console.log('Failed to write image:', err); return; } });
             return xyz;
-        } catch (err) {return err;}
+        } catch (err) { return err; }
     }
 
 
@@ -119,6 +118,20 @@ export default function App() {
                     });
                     const status = await response.json();
 
+                    // Extract metadata from VLC status if available
+                    const vlcMeta = status.information?.category?.meta;
+                    if (vlcMeta) {
+                        SetMetadata(prev => ({
+                            ...prev,
+                            common: {
+                                ...prev?.common,
+                                title: vlcMeta.title || prev?.common?.title,
+                                artist: vlcMeta.artist || prev?.common?.artist,
+                                album: vlcMeta.album || prev?.common?.album,
+                            }
+                        } as any));
+                    }
+
                     if (status.length > 0 && duration === 0) {
                         duration = status.length;  // total duration dalam detik
                         setTotalProgress(formatTime(duration))
@@ -130,11 +143,9 @@ export default function App() {
                         setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%")
                     }
                 } catch (err) {
-                    console.error('Error polling status:', err);
-                    console.clear()
+                    // Silently ignore polling errors to avoid terminal flickering
                 }
-            }, 500);  // update setiap 1 detik
-
+            }, 500);
 
             vlcRef.current = spawn('vlc', [
                 '--qt-start-minimized',
@@ -162,6 +173,10 @@ export default function App() {
                     }
                 })
             }
+
+            return () => {
+                clearInterval(progressInterval);
+            };
         }
     }, [trigger])
 
@@ -169,17 +184,24 @@ export default function App() {
     // mengambil data file lagu
     useEffect(() => {
         fs.readdir(path.join(rootFolder, currentPath), (err, data) => {
-            if (err) throw err;
+            if (err) {
+                console.error('Failed to read directory:', err);
+                return;
+            }
             const sorted = data
-                .map(f => ({file: f, mtime: fs.statSync(path.join(fullPath, f)).mtime}))
+                .map(f => ({ file: f, mtime: fs.statSync(path.join(fullPath, f)).mtime }))
                 .sort((a: any, b: any) => a.mtime - b.mtime)
                 .map(f => f.file);
             if (fullPath == rootFolder) {
                 setFolder(['../', ...sorted]);
             } else {
-                const filterFileType = ['.mp3', '.ogg', '..wav', '.flac']
+                const filterFileType = ['.mp3', '.ogg', '.wav', '.flac']
                 const x = sorted.filter(item => filterFileType.some(format => item.toLowerCase().endsWith(format)))
-                setFolder(['../', ...x])
+                if (fs.statSync(path.join(fullPath)).isDirectory()) {
+                    setFolder(['../', ...sorted])
+                } else {
+                    setFolder(['../', ...x])
+                }
             }
         });
     }, [currentPath]);
@@ -207,15 +229,34 @@ export default function App() {
                         })}
                     </Box>
                     <Box marginLeft={80} padding={1} position='absolute' width={69} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
-                        <Text>Name: {metadata?.common.title}</Text>
-                        <Text>Album: {metadata?.common.album}</Text>
-                        <Text>Artist: {metadata?.common.artist}</Text>
-                        <Text>Duration: {totalProgress}</Text>
-                        <Text>Progress: {progress}</Text>
-                        <Text>{'-'.repeat(64)}</Text>
-                        <Text wrap='truncate-start'>Directory: {currentPath}</Text>
-                        <Text>Selected: "{folder[selectedIndex]}"</Text>
-                        <Text>Status: {status == 0 && 'Music Not Played'} {status == 1 && "Music Is Playing"} {status == 2 && "Music Has Ended"}</Text>
+                        <Box flexDirection="row">
+                            <Text color="cyan" bold>Name: </Text>
+                            <Text bold>{metadata?.common.title || folder[selectedIndex] || 'Unknown'}</Text>
+                        </Box>
+                        <Box flexDirection="row">
+                            <Text color="cyan" bold>Album: </Text>
+                            <Text>{metadata?.common.album || 'Unknown'}</Text>
+                        </Box>
+                        <Box flexDirection="row">
+                            <Text color="cyan" bold>Artist: </Text>
+                            <Text>{metadata?.common.artist || 'Unknown'}</Text>
+                        </Box>
+                        <Box flexDirection="row">
+                            <Text color="cyan" bold>Duration: </Text>
+                            <Text>{totalProgress || '00:00:00'}</Text>
+                        </Box>
+                        <Box flexDirection="row">
+                            <Text color="cyan" bold>Progress: </Text>
+                            <Text color="yellow">{progress || '00:00:00'}</Text>
+                        </Box>
+                        <Text color="gray">{'-'.repeat(64)}</Text>
+                        <Text wrap='truncate-start'><Text color="magenta" bold>Directory: </Text>{currentPath}</Text>
+                        <Text><Text color="white" bold>Selected: </Text>"{folder[selectedIndex]}"</Text>
+                        <Text><Text color="white" bold>Status: </Text>
+                            {status === 0 && <Text color="gray">Music Not Played</Text>}
+                            {status === 1 && <Text color="green">Music Is Playing</Text>}
+                            {status === 2 && <Text color="red">Music Has Ended</Text>}
+                        </Text>
                     </Box>
                     <Box marginLeft={150} padding={1} position='absolute' width={40} height={15} borderStyle={'single'} borderColor={"blue"} flexDirection='column'>
                         <Image
@@ -233,6 +274,7 @@ export default function App() {
 function Renderer() {
     CopyAssests();
     clear();
-    render(<App />)
+    render(<App />);
 }
+
 Renderer();
