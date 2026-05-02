@@ -275,7 +275,7 @@ export default function App() {
                             </Box>
                             <Box flexDirection="row">
                                 <Text color="white">{metadata?.common.artist || 'Unknown Artist'}</Text>
-                                {metadata?.common.album ? <Text color="cyan">  ·  {metadata.common.album}</Text> : null}
+                                {metadata?.common.album ? <Text color="cyan" wrap='truncate-end'>  ·  {metadata.common.album}</Text> : null}
                             </Box>
 
                             {/* Progress Bar */}
