@@ -298,6 +298,7 @@ export default function App() {
                     <Box
                         flexDirection="column"
                         width="100%"
+                        height={41}
                         borderStyle="single"
                         borderColor="gray"
                         paddingX={1}
@@ -311,7 +312,7 @@ export default function App() {
                             borderRight={false}
                             justifyContent="center"
                         >
-                            <Text bold color="white"> QUEUE </Text>
+                            <Text bold color="white"> PLAYLIST </Text>
                         </Box>
                         {visibleItems.map((value, idx) => {
                             const actualIndex = scrollStart + idx;
@@ -335,7 +336,7 @@ export default function App() {
                 {/* Footer */}
                 <Box marginTop={1} justifyContent="center">
                     <Text color="cyan">
-                        <Text color="white" bold> ↑↓ </Text>nav  <Text color="white" bold> Enter </Text>select  <Text color="white" bold> Esc </Text>quit
+                        <Text color="white" bold> ↑↓ </Text>navigate  <Text color="white" bold> Enter </Text>select  <Text color="white" bold> Esc </Text>quit
                     </Text>
                 </Box>
             </Box>
