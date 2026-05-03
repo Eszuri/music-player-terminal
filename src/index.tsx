@@ -4,7 +4,6 @@ import Image, { TerminalInfoProvider } from "ink-picture";
 import fs from 'fs';
 import path from 'path';
 import clear from 'clear';
-import { ChildProcess, spawn } from 'child_process';
 import { IAudioMetadata, parseFile } from 'music-metadata';
 import { CopyAssests, CopyDefaultImage } from './cp.js';
 import { autoWallpaper } from './auto-wallpaper.js';
@@ -20,16 +19,17 @@ export default function App() {
     const [status, setStatus] = useState<number>(0);
     const [trigger, SetTrigger] = useState<boolean>(false);
     const rootFolder = path.join(process.cwd(), "./../../../Anime_Ost");
-    const vlcRef = useRef<ChildProcess | null>(null);
+    const vlcRef = useRef<any>(null);
     const enterTrigger = useRef(false);
     const fullPath = path.join(rootFolder, currentPath);
     const { exit } = useApp();
 
     // handle keyboard
-    useInput((input, key) => {
+    useInput(async (input, key) => {
         if (key.escape) {
             if (vlcRef.current == null || vlcRef.current != null) { vlcRef.current?.kill() };
-            CopyDefaultImage();
+            await CopyDefaultImage();
+            autoWallpaper();
             exit();
             console.clear();
             return;
@@ -88,10 +88,11 @@ export default function App() {
             const xyz = await parseFile(fullPath + "/" + folder[selectedIndex]);
             const picture = xyz.common.picture?.[0];
             if (picture) {
-                fs.writeFileSync('build/background.png', picture.data);
+                await Bun.write('build/background.png', picture.data);
             } else {
-                CopyDefaultImage();
+                await CopyDefaultImage();
             }
+            autoWallpaper();
             SetMetadata(xyz);
             return xyz;
         } catch (err) { return err; }
@@ -152,34 +153,34 @@ export default function App() {
                 }
             }, 500);
 
-            vlcRef.current = spawn('cvlc', [
+            vlcRef.current = Bun.spawn([
+                'cvlc',
                 '--qt-start-minimized',
                 '--no-video',
-                '--extraintf=http',       // aktifkan HTTP interface
-                '--http-port=8080',       // port default 8080
-                '--http-password=Eszuri', // password untuk akses
+                '--extraintf=http',
+                '--http-port=8080',
+                '--http-password=Eszuri',
                 '--play-and-exit',
-                fullPath + '/' + folder[selectedIndex]]);
-            if (vlcRef.current) {
-                vlcRef.current.on('close', () => {
+                fullPath + '/' + folder[selectedIndex]
+            ], {
+                onExit: async () => {
                     clearInterval(progressInterval)
                     if (folder.length == selectedIndex + 1) {
                         vlcRef.current = null;
                         setSelectedIndex(0);
                         setStatus(2);
-                        CopyDefaultImage();
+                        await CopyDefaultImage();
+                        autoWallpaper();
                     } else {
                         if (enterTrigger.current == false) {
                             setSelectedIndex(prev => prev + 1);
-                            autoWallpaper();
                         } else {
                             enterTrigger.current = false;
-                            autoWallpaper();
                         }
                         SetTrigger(!trigger)
                     }
-                })
-            }
+                }
+            });
 
             return () => {
                 clearInterval(progressInterval);
@@ -348,8 +349,8 @@ export default function App() {
     );
 }
 
-function Renderer() {
-    CopyAssests();
+async function Renderer() {
+    await CopyAssests();
     clear();
     render(<App />);
 }

@@ -1,17 +1,20 @@
-import { copyFileSync } from "fs";
 import path from "path";
 
-export function CopyAssests() {
+export async function CopyAssests() {
     try {
-        copyFileSync(path.join(process.cwd(), 'src/default.png'), path.join(process.cwd(), 'build/default.png'));
+        const src = path.join(process.cwd(), 'src/default.png');
+        const dest = path.join(process.cwd(), 'build/default.png');
+        await Bun.write(dest, Bun.file(src));
     } catch (err) {
         console.error("Failed to copy assets:", err);
     }
 }
 
-export function CopyDefaultImage() {
+export async function CopyDefaultImage() {
     try {
-        copyFileSync(path.join(process.cwd(), 'build/default.png'), path.join(process.cwd(), 'build/background.png'));
+        const src = path.join(process.cwd(), 'build/default.png');
+        const dest = path.join(process.cwd(), 'build/background.png');
+        await Bun.write(dest, Bun.file(src));
     } catch (err) {
         console.error("Failed to copy default image:", err);
     }

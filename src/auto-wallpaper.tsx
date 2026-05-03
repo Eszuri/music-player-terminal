@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import path from "node:path";
 
 export function autoWallpaper() {
@@ -6,9 +5,9 @@ export function autoWallpaper() {
         const defaultImg = path.join(process.cwd(), "build/default.png");
         const backgroundImg = path.join(process.cwd(), "build/background.png");
 
-        // For Linux (LXQt Desktop Environment)
-        execSync(`pcmanfm-qt --set-wallpaper "${defaultImg}" --wallpaper-mode=fit`);
-        execSync(`pcmanfm-qt --set-wallpaper "${backgroundImg}" --wallpaper-mode=fit`);
+        // Mengatur wallpaper ke default dulu lalu ke background untuk memicu refresh pada beberapa Desktop Environment
+        Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", defaultImg, "--wallpaper-mode=fit"]);
+        Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", backgroundImg, "--wallpaper-mode=fit"]);
     } catch (err) {
         console.error("Gagal mengganti wallpaper")
     }
