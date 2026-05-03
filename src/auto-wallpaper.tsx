@@ -9,6 +9,6 @@ export function autoWallpaper() {
         Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", defaultImg, "--wallpaper-mode=fit"]);
         Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", backgroundImg, "--wallpaper-mode=fit"]);
     } catch (err) {
-        console.error("Gagal mengganti wallpaper")
+        return err
     }
 }

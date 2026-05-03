@@ -6,7 +6,7 @@ export async function CopyAssests() {
         const dest = path.join(process.cwd(), 'build/default.png');
         await Bun.write(dest, Bun.file(src));
     } catch (err) {
-        console.error("Failed to copy assets:", err);
+        return err;
     }
 }
 
@@ -16,6 +16,6 @@ export async function CopyDefaultImage() {
         const dest = path.join(process.cwd(), 'build/background.png');
         await Bun.write(dest, Bun.file(src));
     } catch (err) {
-        console.error("Failed to copy default image:", err);
+        return err;
     }
 }

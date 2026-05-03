@@ -112,57 +112,24 @@ export default function App() {
     // eksekusi ketika return lagu
     useEffect(() => {
         if (fullPath != rootFolder) {
-            getMetadata();
-            let duration = 0;  // akan diisi saat pertama kali dapat status
-            const progressInterval = setInterval(async () => {
-                try {
-                    const response = await fetch('http://localhost:8080/requests/status.json', {
-                        headers: {
-                            Authorization: 'Basic ' + Buffer.from(':Eszuri').toString('base64')  // username kosong
-                        }
-                    });
-                    const status = await response.json();
-
-                    // Extract metadata from VLC status if available
-                    const vlcMeta = status.information?.category?.meta;
-                    if (vlcMeta) {
-                        SetMetadata(prev => ({
-                            ...prev,
-                            common: {
-                                ...prev?.common,
-                                title: vlcMeta.title || prev?.common?.title,
-                                artist: vlcMeta.artist || prev?.common?.artist,
-                                album: vlcMeta.album || prev?.common?.album,
-                            }
-                        } as any));
-                    }
-
-                    if (status.length > 0 && duration === 0) {
-                        duration = status.length;  // total duration dalam detik
-                        setTotalProgress(formatTime(duration))
-                    }
-
-                    if (status.time !== undefined) {
-                        const current = status.time;
-                        const percent: any = duration > 0 ? (current / duration * 100).toFixed(2) : 0;
-                        setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%")
-                    }
-                    autoWallpaper();
-                } catch (err) {
-                    // Silently ignore polling errors to avoid terminal flickering
+            let duration = 0;
+            getMetadata().then((xyz: any) => {
+                if (xyz?.format?.duration) {
+                    duration = xyz.format.duration;
+                    setTotalProgress(formatTime(duration));
                 }
-            }, 500);
+            });
 
-            vlcRef.current = Bun.spawn([
+            const proc = Bun.spawn([
                 'cvlc',
-                '--qt-start-minimized',
+                '-I', 'rc',
+                '--rc-fake-tty',
                 '--no-video',
-                '--extraintf=http',
-                '--http-port=8080',
-                '--http-password=Eszuri',
                 '--play-and-exit',
                 fullPath + '/' + folder[selectedIndex]
             ], {
+                stdin: "pipe",
+                stdout: "pipe",
                 onExit: async () => {
                     clearInterval(progressInterval)
                     if (folder.length == selectedIndex + 1) {
@@ -182,8 +149,46 @@ export default function App() {
                 }
             });
 
+            vlcRef.current = proc;
+
+            const progressInterval = setInterval(() => {
+                try {
+                    if (vlcRef.current && vlcRef.current.stdin) {
+                        vlcRef.current.stdin.write('get_time\n');
+                        vlcRef.current.stdin.flush();
+                    }
+                } catch (err) {
+                    // Ignore write errors
+                }
+            }, 500);
+
+            // Stream reader for VLC stdout
+            (async () => {
+                try {
+                    const reader = proc.stdout.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value);
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+                        for (let line of lines) {
+                            line = line.replace(/>/g, '').trim();
+                            if (/^\d+$/.test(line)) {
+                                const current = parseInt(line, 10);
+                                const percent: any = duration > 0 ? (current / duration * 100).toFixed(2) : 0;
+                                setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%");
+                            }
+                        }
+                    }
+                } catch (err) {}
+            })();
+
             return () => {
                 clearInterval(progressInterval);
+                try { proc.kill(); } catch (e) {}
             };
         }
     }, [trigger])
