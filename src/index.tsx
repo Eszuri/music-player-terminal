@@ -1,58 +1,81 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Text, render, Box, useApp, useInput } from 'ink';
-import Image, { TerminalInfoProvider } from "ink-picture";
+import Image, { TerminalInfoProvider } from 'ink-picture';
 import fs from 'fs';
 import path from 'path';
-import clear from 'clear';
 import { IAudioMetadata, parseFile } from 'music-metadata';
-import { CopyAssests, CopyDefaultImage } from './cp.js';
+import { CopyAssets, CopyDefaultImage } from './cp.js';
 import { autoWallpaper } from './auto-wallpaper.js';
+
+// ─── Konstanta ────────────────────────────────────────────────────────────────
 
 const PROJECT_ROOT = path.resolve(import.meta.dir, '..');
 const BUILD_DIR = path.join(PROJECT_ROOT, 'build');
 if (!fs.existsSync(BUILD_DIR)) fs.mkdirSync(BUILD_DIR, { recursive: true });
+
 const DEFAULT_IMG = path.join(BUILD_DIR, 'default.png');
 const WALLPAPER_IMG = path.join(BUILD_DIR, 'wallpaper.png');
+const ROOT_FOLDER = path.resolve(PROJECT_ROOT, '../../..', 'Anime_Ost');
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.ogg', '.wav', '.flac']);
 const BAR_LENGTH = 45;
+const VISIBLE_COUNT = 35;
+const VLC_HTTP_PORT = 9090;
+const VLC_HTTP_PASSWORD = 'VLC';
+const VLC_AUTH_HEADER = 'Basic ' + btoa(`:${VLC_HTTP_PASSWORD}`);
+const PROGRESS_INTERVAL_MS = 200;
+const WALLPAPER_DELAY_MS = 100;
+const CLEANUP_DELAY_MS = 1000;
 
-const AlbumArt = React.memo(({ metadata, imagePath }: { metadata: IAudioMetadata | undefined, imagePath: string }) => {
-    return (
-        <Image
-            src={imagePath}
-            width={100}
-            height={100}
-        />
-    );
-});
+// ─── Helper Functions ─────────────────────────────────────────────────────────
 
+/** Format detik menjadi string HH:MM:SS */
+function formatTime(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return [h, m, s].map(v => v.toString().padStart(2, '0')).join(':');
+}
+
+/** Hapus file gambar lama setelah jeda agar tidak bentrok dengan UI */
+function scheduleImageCleanup(oldPath: string): void {
+    if (!oldPath || oldPath === DEFAULT_IMG) return;
+    setTimeout(() => {
+        if (fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch { /* abaikan error */ }
+        }
+    }, CLEANUP_DELAY_MS);
+}
+
+// ─── Komponen AlbumArt ────────────────────────────────────────────────────────
+
+const AlbumArt = React.memo(({ imagePath }: { imagePath: string }) => (
+    <Image src={imagePath} width={100} height={100} />
+));
+
+// ─── Komponen Utama ───────────────────────────────────────────────────────────
 
 export default function App() {
-    // variabel
     const [folder, setFolder] = useState<string[]>([]);
-    const [metadata, SetMetadata] = useState<IAudioMetadata>()
-    const [progress, setProgress] = useState<string>('');
-    const [totalProgress, setTotalProgress] = useState<string>('');
+    const [metadata, setMetadata] = useState<IAudioMetadata>();
+    const [progress, setProgress] = useState('');
+    const [totalProgress, setTotalProgress] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [currentPath, setCurrentPath] = useState('');
-    const [status, setStatus] = useState<number>(0);
-    const [trigger, SetTrigger] = useState<boolean>(false);
-    const [imagePath, setImagePath] = useState<string>(DEFAULT_IMG);
-    const rootFolder = path.resolve(PROJECT_ROOT, "../../..", "Anime_Ost");
+    const [status, setStatus] = useState(0);
+    const [trigger, setTrigger] = useState(false);
+    const [imagePath, setImagePath] = useState(DEFAULT_IMG);
+
     const vlcRef = useRef<any>(null);
     const enterTrigger = useRef(false);
-    const fullPath = path.join(rootFolder, currentPath);
+    const fullPath = path.join(ROOT_FOLDER, currentPath);
     const { exit } = useApp();
 
+    // ─── Handler Keyboard ─────────────────────────────────────────────────────
 
-
-
-
-
-    // handle keyboard
     useInput(async (input, key) => {
         if (key.escape) {
-            if (vlcRef.current == null || vlcRef.current != null) { vlcRef.current?.kill() };
-            await CopyDefaultImage();
+            vlcRef.current?.kill();
+            CopyDefaultImage();
             autoWallpaper();
             exit();
             console.clear();
@@ -66,113 +89,81 @@ export default function App() {
 
         if (key.downArrow) {
             setSelectedIndex(prev => (prev + 1) % folder.length);
+            return;
         }
 
         if (key.upArrow) {
             setSelectedIndex(prev => (prev - 1 + folder.length) % folder.length);
+            return;
         }
 
         if (input === 'Enter' || key.return) {
             const targetPath = path.join(fullPath, selectedItem);
-            const checkType = fs.statSync(targetPath);
+            const stat = fs.statSync(targetPath);
 
             if (selectedIndex === 0) {
                 const parent = path.dirname(currentPath);
-                setCurrentPath(path.relative(rootFolder, path.join(rootFolder, parent)));
+                setCurrentPath(path.relative(ROOT_FOLDER, path.join(ROOT_FOLDER, parent)));
                 return;
             }
 
-            if (checkType.isDirectory()) {
-                clear({ fullClear: true });
-                setCurrentPath(path.relative(rootFolder, targetPath));
+            if (stat.isDirectory()) {
+                setCurrentPath(path.relative(ROOT_FOLDER, targetPath));
                 setSelectedIndex(0);
-                console.clear();
+                return;
             }
 
-            if (checkType.isFile()) {
-                if (status == 1 && vlcRef.current) {
-                    enterTrigger.current ? enterTrigger.current = true : enterTrigger.current = true;
+            if (stat.isFile()) {
+                // Jika sedang memutar, tandai bahwa pengguna memilih lagu baru secara manual
+                if (status === 1 && vlcRef.current) {
+                    enterTrigger.current = true;
                     vlcRef.current.kill();
-                    SetTrigger(!trigger);
                 } else {
-                    setStatus(1)
-                    vlcRef.current ? vlcRef.current.kill() : null;
-                    SetTrigger(!trigger);
-
+                    setStatus(1);
+                    vlcRef.current?.kill();
                 }
+                setTrigger(prev => !prev);
             }
         }
-
     });
 
+    // ─── Ekstrak Metadata & Update Wallpaper ──────────────────────────────────
 
-    // function untuk save image dan set wallpaper
-    async function getMetadata(filePath: string) {
-        if (!filePath) return;
+    const getMetadata = useCallback(async (filePath: string): Promise<IAudioMetadata | undefined> => {
+        if (!filePath || !fs.existsSync(filePath)) return;
 
         try {
-            if (!fs.existsSync(filePath)) return;
+            const parsed = await parseFile(filePath);
+            setMetadata(parsed);
 
-            const xyz = await parseFile(filePath);
-            SetMetadata(xyz); // Update text metadata immediately
-
-            const picture = xyz.common.picture?.[0];
+            const picture = parsed.common.picture?.[0];
+            const oldPath = imagePath;
 
             if (picture) {
                 const newImgPath = path.join(BUILD_DIR, `bg_${Date.now()}.png`);
                 fs.writeFileSync(newImgPath, picture.data);
-
-                const oldPath = imagePath;
                 setImagePath(newImgPath);
-
-                // Copy untuk wallpaper agar tidak bentrok (file lock) dengan UI terminal
-                try { fs.copyFileSync(newImgPath, WALLPAPER_IMG); } catch (e) { }
-
-                setTimeout(() => {
-                    autoWallpaper(WALLPAPER_IMG);
-                }, 100);
-
-                // Hapus file lama setelah jeda
-                setTimeout(() => {
-                    if (oldPath && oldPath !== DEFAULT_IMG && fs.existsSync(oldPath)) {
-                        try { fs.unlinkSync(oldPath); } catch (e) { }
-                    }
-                }, 1000);
+                try { fs.copyFileSync(newImgPath, WALLPAPER_IMG); } catch { /* abaikan */ }
             } else {
-                const oldPath = imagePath;
                 setImagePath(DEFAULT_IMG);
-
-                try { fs.copyFileSync(DEFAULT_IMG, WALLPAPER_IMG); } catch (e) { }
-
-                setTimeout(() => {
-                    if (oldPath && oldPath !== DEFAULT_IMG && fs.existsSync(oldPath)) {
-                        try { fs.unlinkSync(oldPath); } catch (e) { }
-                    }
-                }, 1000);
-
-                setTimeout(() => {
-                    autoWallpaper(WALLPAPER_IMG);
-                }, 100);
+                try { fs.copyFileSync(DEFAULT_IMG, WALLPAPER_IMG); } catch { /* abaikan */ }
             }
-            return xyz;
+
+            // Set wallpaper setelah jeda singkat agar file tersedia
+            setTimeout(() => autoWallpaper(WALLPAPER_IMG), WALLPAPER_DELAY_MS);
+            scheduleImageCleanup(oldPath);
+
+            return parsed;
         } catch (err) {
-            fs.appendFileSync(path.join(PROJECT_ROOT, 'debug.log'), `[${new Date().toISOString()}] Error in getMetadata: ${err}\n`);
-            return err;
+            fs.appendFileSync(
+                path.join(PROJECT_ROOT, 'debug.log'),
+                `[${new Date().toISOString()}] Error in getMetadata: ${err}\n`
+            );
         }
-    }
+    }, [imagePath]);
 
+    // ─── Pemutaran Lagu ───────────────────────────────────────────────────────
 
-
-    // format time 
-    function formatTime(seconds: any) {
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
-        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-
-
-    // eksekusi ketika return lagu
     useEffect(() => {
         const runPlayback = async () => {
             const selectedFile = folder[selectedIndex];
@@ -180,68 +171,67 @@ export default function App() {
 
             const absoluteSongPath = path.resolve(fullPath, selectedFile);
 
-            // Tunggu metadata dan gambar selesai diproses sebelum memutar lagu
+            // Tunggu metadata selesai sebelum memulai pemutaran
             await getMetadata(absoluteSongPath);
-
-            const vlcHttpPort = 9090;
-            const vlcHttpPassword = 'musicplayer';
 
             const proc = Bun.spawn([
                 'vlc',
                 '--intf', 'dummy',
                 '--extraintf', 'http',
-                '--http-port', String(vlcHttpPort),
-                '--http-password', vlcHttpPassword,
+                '--http-port', String(VLC_HTTP_PORT),
+                '--http-password', VLC_HTTP_PASSWORD,
                 '--no-video',
                 '--play-and-exit',
-                absoluteSongPath
+                absoluteSongPath,
             ], {
-                stdin: "pipe",
-                stdout: "pipe",
+                stdin: 'pipe',
+                stdout: 'pipe',
                 onExit: async () => {
-                    clearInterval(progressInterval)
-                    if (folder.length == selectedIndex + 1) {
+                    clearInterval(progressInterval);
+                    const isLastTrack = folder.length === selectedIndex + 1;
+                    if (isLastTrack) {
                         vlcRef.current = null;
                         setSelectedIndex(0);
                         setStatus(2);
-                        await CopyDefaultImage();
+                        CopyDefaultImage();
                         autoWallpaper();
+                    } else if (!enterTrigger.current) {
+                        // Lanjut ke lagu berikutnya secara otomatis
+                        setSelectedIndex(prev => prev + 1);
+                        setTrigger(prev => !prev);
                     } else {
-                        if (enterTrigger.current == false) {
-                            setSelectedIndex(prev => prev + 1);
-                        } else {
-                            enterTrigger.current = false;
-                        }
-                        SetTrigger(!trigger)
+                        // Pengguna memilih lagu secara manual, trigger sudah di-set
+                        enterTrigger.current = false;
                     }
-                }
+                },
             });
 
             vlcRef.current = proc;
 
+            // Polling progress dari VLC HTTP API
             const progressInterval = setInterval(async () => {
                 try {
-                    const res = await fetch(`http://127.0.0.1:${vlcHttpPort}/requests/status.xml`, {
-                        headers: {
-                            'Authorization': 'Basic ' + btoa(`:${vlcHttpPassword}`)
-                        }
-                    });
-                    if (res.ok) {
-                        const text = await res.text();
-                        const timeMatch = text.match(/<time>(\d+)<\/time>/);
-                        const lengthMatch = text.match(/<length>(\d+)<\/length>/);
-                        if (timeMatch && lengthMatch) {
-                            const current = parseInt(timeMatch[1], 10);
-                            const total = parseInt(lengthMatch[1], 10);
-                            setTotalProgress(formatTime(total));
-                            const percent: any = total > 0 ? (current / total * 100).toFixed(2) : 0;
-                            setProgress(formatTime(current) + " / " + "(" + percent + ")" + "%");
-                        }
+                    const res = await fetch(
+                        `http://127.0.0.1:${VLC_HTTP_PORT}/requests/status.xml`,
+                        { headers: { Authorization: VLC_AUTH_HEADER } }
+                    );
+                    if (!res.ok) return;
+
+                    const text = await res.text();
+                    const timeMatch = text.match(/<time>(\d+)<\/time>/);
+                    const lengthMatch = text.match(/<length>(\d+)<\/length>/);
+
+                    if (timeMatch && lengthMatch) {
+                        const current = parseInt(timeMatch[1], 10);
+                        const total = parseInt(lengthMatch[1], 10);
+                        const percent = total > 0 ? ((current / total) * 100).toFixed(2) : '0.00';
+                        setProgress(`${formatTime(current)} / (${percent})%`);
+                        setTotalProgress(formatTime(total));
                     }
-                } catch (err) {
-                    // Ignore fetch errors
+                } catch {
+                    // Abaikan error jaringan selama polling
                 }
-            }, 200);
+            }, PROGRESS_INTERVAL_MS);
 
             vlcRef.current.progressInterval = progressInterval;
         };
@@ -250,131 +240,119 @@ export default function App() {
 
         return () => {
             if (vlcRef.current) {
-                if (vlcRef.current.progressInterval) clearInterval(vlcRef.current.progressInterval);
-                try { vlcRef.current.kill(); } catch (e) { }
+                clearInterval(vlcRef.current.progressInterval);
+                try { vlcRef.current.kill(); } catch { /* abaikan */ }
             }
         };
     }, [trigger]);
 
+    // ─── Baca Isi Direktori ───────────────────────────────────────────────────
 
-    // mengambil data file lagu
     useEffect(() => {
-        fs.readdir(path.join(rootFolder, currentPath), (err, data) => {
+        console.clear();
+        fs.readdir(path.join(ROOT_FOLDER, currentPath), (err, entries) => {
             if (err) {
-                console.error('Failed to read directory:', err);
+                console.error('Gagal membaca direktori:', err);
                 return;
             }
-            const sorted = data
+
+            // Urutkan berdasarkan waktu modifikasi
+            const sorted = entries
                 .map(f => ({ file: f, mtime: fs.statSync(path.join(fullPath, f)).mtime }))
-                .sort((a: any, b: any) => a.mtime - b.mtime)
+                .sort((a, b) => a.mtime.getTime() - b.mtime.getTime())
                 .map(f => f.file);
-            if (fullPath == rootFolder) {
+
+            if (fullPath === ROOT_FOLDER) {
+                // Di root: tampilkan semua (folder & file)
                 setFolder(['../', ...sorted]);
             } else {
-                const filterFileType = ['.mp3', '.ogg', '.wav', '.flac']
-                const x = sorted.filter(item => filterFileType.some(format => item.toLowerCase().endsWith(format)))
-                if (fs.statSync(path.join(fullPath)).isDirectory()) {
-                    setFolder(['../', ...sorted])
-                } else {
-                    setFolder(['../', ...x])
-                }
+                // Di sub-folder: pisahkan folder dan file audio
+                const dirs = sorted.filter(f => fs.statSync(path.join(fullPath, f)).isDirectory());
+                const audios = sorted.filter(f => AUDIO_EXTENSIONS.has(path.extname(f).toLowerCase()));
+                setFolder(['../', ...dirs, ...audios]);
             }
         });
     }, [currentPath]);
 
+    // ─── Kalkulasi UI ─────────────────────────────────────────────────────────
 
-    // UI Logic
     const { visibleItems, scrollStart } = useMemo(() => {
-        const visibleCount = 35;
         const start = Math.min(
-            Math.max(selectedIndex - Math.floor(visibleCount / 2), 0),
-            Math.max(folder.length - visibleCount, 0)
+            Math.max(selectedIndex - Math.floor(VISIBLE_COUNT / 2), 0),
+            Math.max(folder.length - VISIBLE_COUNT, 0)
         );
-        const sliced = folder.slice(start, start + visibleCount);
-
-        // Log exactly what's being sent to the UI
-        fs.appendFileSync(path.join(PROJECT_ROOT, 'debug.log'), `[${new Date().toISOString()}] Rendering ${sliced.length} items. ScrollStart: ${start}, Selected: ${selectedIndex}\n`);
-
-        return {
-            visibleItems: sliced,
-            scrollStart: start
-        };
+        return { visibleItems: folder.slice(start, start + VISIBLE_COUNT), scrollStart: start };
     }, [selectedIndex, folder]);
 
     const progressBar = useMemo(() => {
-        const percentMatch = progress.match(/\((.*?)\)%/);
-        const percentValue = percentMatch ? parseFloat(percentMatch[1]) : 0;
-        const filledLength = Math.floor((percentValue / 100) * BAR_LENGTH);
-        return '█'.repeat(filledLength) + '░'.repeat(Math.max(0, BAR_LENGTH - filledLength));
+        const match = progress.match(/\((.*?)\)%/);
+        const percent = match ? parseFloat(match[1]) : 0;
+        const filled = Math.floor((percent / 100) * BAR_LENGTH);
+        return '█'.repeat(filled) + '░'.repeat(Math.max(0, BAR_LENGTH - filled));
     }, [progress]);
+
+    const currentTime = progress.split(' / ')[0] || '00:00:00';
+    const statusLabel = ['● Stopped', '● Playing', '● Ended'][status] ?? '● Stopped';
+
+    // ─── Render ───────────────────────────────────────────────────────────────
 
     return (
         <TerminalInfoProvider>
             <Box flexDirection="column" width="100%" padding={1}>
 
+                {/* Header */}
                 <Box justifyContent="space-between" marginBottom={1}>
                     <Text bold color="white"> 🎵  Music Player</Text>
-                    <Text color="cyan">
-                        {status === 0 && '● Stopped'}
-                        {status === 1 && '● Playing'}
-                        {status === 2 && '● Ended'}
-                    </Text>
+                    <Text color="cyan">{statusLabel}</Text>
                 </Box>
 
                 <Box flexDirection="row" flexGrow={1} minHeight={28}>
 
-                    {/* Left Panel: Art + Info stacked */}
+                    {/* Panel Kiri: Album Art + Info */}
                     <Box flexDirection="column" width="50%" marginRight={2}>
 
-                        {/* Large Album Art */}
-                        <Box
-                            width="100%"
-                            height={34}
-                            borderStyle="single"
-                            borderColor="gray"
-                        >
-                            <AlbumArt
-                                metadata={metadata}
-                                imagePath={imagePath}
-                            />
+                        {/* Album Art */}
+                        <Box width="100%" height={34} borderStyle="single" borderColor="gray">
+                            <AlbumArt imagePath={imagePath} />
                         </Box>
 
-                        {/* Metadata Info */}
+                        {/* Info Lagu */}
                         <Box
                             flexDirection="column"
-                            width={"100%"}
+                            width="100%"
                             borderStyle="single"
                             borderColor="gray"
                             paddingX={2}
-                            paddingY={0}
                         >
-                            <Box flexDirection="row" marginBottom={0}>
+                            <Box flexDirection="row">
                                 <Text color="white" bold wrap="truncate-end">
                                     {metadata?.common.title || folder[selectedIndex] || '—'}
                                 </Text>
                             </Box>
                             <Box flexDirection="row">
                                 <Text color="white">{metadata?.common.artist || 'Unknown Artist'}</Text>
-                                {metadata?.common.album ? <Text color="cyan" wrap='truncate-end'>  ·  {metadata.common.album}</Text> : null}
+                                {metadata?.common.album && (
+                                    <Text color="cyan" wrap="truncate-end">  ·  {metadata.common.album}</Text>
+                                )}
                             </Box>
 
                             {/* Progress Bar */}
                             <Box flexDirection="column" marginTop={1}>
                                 <Text color="greenBright">{progressBar}</Text>
                                 <Box flexDirection="row" justifyContent="space-between" width={BAR_LENGTH}>
-                                    <Text color="white">{progress.split(' / ')[0] || '00:00:00'}</Text>
+                                    <Text color="white">{currentTime}</Text>
                                     <Text color="white">{totalProgress || '00:00:00'}</Text>
                                 </Box>
                             </Box>
                         </Box>
 
-                        {/* Directory */}
+                        {/* Direktori Aktif */}
                         <Box marginTop={1} paddingX={1}>
                             <Text color="cyan" wrap="truncate-start">📁 {currentPath || '/'}</Text>
                         </Box>
                     </Box>
 
-                    {/* Right Panel: Playlist */}
+                    {/* Panel Kanan: Playlist */}
                     <Box
                         flexDirection="column"
                         width="100%"
@@ -394,6 +372,7 @@ export default function App() {
                         >
                             <Text bold color="white"> PLAYLIST </Text>
                         </Box>
+
                         {visibleItems.map((value, idx) => {
                             const actualIndex = scrollStart + idx;
                             const isSelected = actualIndex === selectedIndex;
@@ -416,7 +395,7 @@ export default function App() {
                 {/* Footer */}
                 <Box marginTop={1} justifyContent="center">
                     <Text color="cyan">
-                        <Text color="white" bold> ↑↓ </Text>navigate  <Text color="white" bold> Enter </Text>select  <Text color="white" bold> Esc </Text>quit
+                        <Text color="white" bold> ↑↓ </Text>navigasi  <Text color="white" bold> Enter </Text>pilih  <Text color="white" bold> Esc </Text>keluar
                     </Text>
                 </Box>
             </Box>
@@ -424,9 +403,10 @@ export default function App() {
     );
 }
 
+// ─── Entry Point ──────────────────────────────────────────────────────────────
+
 async function Renderer() {
-    await CopyAssests();
-    clear();
+    CopyAssets();
     render(<App />);
 }
 

@@ -15,16 +15,8 @@ export function autoWallpaper(customImgPath?: string) {
                 Bun.spawnSync(["powershell", "-Command", command]);
             };
             // Set ke default dulu untuk trigger refresh (opsional, tapi terkadang membantu)
-            // setWallpaper(DEFAULT_IMG); 
+            setWallpaper(DEFAULT_IMG);
             setWallpaper(backgroundImg);
-        } else {
-            // Linux (assuming pcmanfm-qt as per original code)
-            try {
-                Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", DEFAULT_IMG, "--wallpaper-mode=fit"]);
-                Bun.spawnSync(["pcmanfm-qt", "--set-wallpaper", backgroundImg, "--wallpaper-mode=fit"]);
-            } catch (e) {
-                // Ignore if pcmanfm-qt is not available
-            }
         }
     } catch (err) {
         return err

@@ -4,7 +4,7 @@ import fs from "fs";
 const PROJECT_ROOT = path.resolve(import.meta.dir, '..');
 const BUILD_DIR = path.join(PROJECT_ROOT, 'build');
 
-export async function CopyAssests() {
+export async function CopyAssets() {
     try {
         if (!fs.existsSync(BUILD_DIR)) fs.mkdirSync(BUILD_DIR, { recursive: true });
         const src = path.join(PROJECT_ROOT, 'src/default.png');
